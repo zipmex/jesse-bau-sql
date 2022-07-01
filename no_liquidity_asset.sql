@@ -1,0 +1,48 @@
+('ATOMUSDT','AAVEUSDT','ALGOIDR','AVAXIDR','AVAXUSDT','AXSIDR','AXSUSDT','BAKEIDR','AAVEIDR','TFUELIDR','BAKEUSDT','BATIDR','ALGOUSDT','DOGESGD','ADATHB','BNBSGD','BNBTHB','BNTIDR','CHZIDR','FILIDR','GRTIDR','DOGETHB','ADASGD','HBARIDR','HOTIDR','BNTUSDT','CAKEIDR','CAKEUSDT','HBARUSDT','CHZUSDT','IOSTIDR','DOGEAUD','BNBAUD','HOTUSDT','IOSTUSDT','IOTAIDR','IOTAUSDT','KSMIDR','RUNEIDR','ADAAUD','SUSHIIDR','MANAIDR','MANAUSDT','MATICIDR','MATICUSDT','NANOIDR','NANOUSDT','NEOIDR','NEOUSDT','ONEIDR','ONEUSDT','QTUMIDR','VETIDR','VETUSDT','WAVESIDR','WAVESUSDT','XEMIDR','XEMUSDT','ZILIDR','ZILUSDT','ZRXIDR','ZRXUSDT','COMPIDR','COMPSGD','COMPUSD','TFUELUSDT','THETAIDR','THETAUSDT','TRXIDR','TRXUSDT','SANDUSDT','SANDUSD','COMPUSDT','DOGEUSD','ENJUSDT','MKRUSDT','OMGUSDT','SXPUSDT','YFIUSDT','OMGIDR','OMGUSD','SXPAUD','SXPSGD','YFIIDR','YFITHB','COMPAUD','COMPTHB','SANDAUD','SANDIDR','SANDSGD','SANDTHB','MKRUSD','OMGAUD','YFIUSD','QTUMUSDT','RENIDR','RENUSDT','RUNEUSDT','SNXIDR','SNXUSDT','SOLIDR','SOLUSDT','SUSHIUSDT','MKRAUD','MKRSGD','OMGSGD','ATOMIDR','BATUSDT','DASHIDR','SXPIDR','SXPUSD','YFISGD','ADAUSDT','BNBUSDT','DOGEUSDT','ADAIDR','BNBIDR','DOGEIDR','BNBUSD','ADAUSD','DASHUSDT','FILUSDT','GRTUSDT','KSMUSDT','ENJAUD','ENJIDR','ENJSGD','ENJTHB','ENJUSD','MKRIDR','MKRTHB','OMGTHB','SXPTHB','YFIAUD')
+
+SELECT 
+	DATE_TRUNC('hour', t.created_at AT time ZONE 'Asia/Jakarta') created_at 
+	, t.signup_hostcountry 
+	, t.ap_account_id 
+	, u.email 
+	, u.mobile_number 
+	, i.symbol 
+	, t.side 
+	, t.trade_id 
+	, t.order_id 
+	, t.quantity 
+	, t.price 
+	, t.amount_base_fiat 
+	, t.amount_usd 
+	, COALESCE(c."close", cp.average_high_low) market_price
+	, CASE WHEN c."close" IS NOT NULL THEN 'hourly_price'
+		ELSE 'daily_avg_highlow' END AS market_price_type
+FROM 
+	oms_data.analytics.trades_master t 
+	LEFT JOIN analytics.users_master u 
+		ON u.ap_account_id = t.ap_account_id 
+	LEFT JOIN mysql_replica_apex.instruments i 
+		ON t.instrument_id = i.instrument_id 
+	LEFT JOIN public.cryptocurrency_prices_hourly c 
+		ON DATE_TRUNC('hour', t.created_at) = DATE_TRUNC('hour', c."updatedAt") 
+		AND c.product_1_symbol = t.product_1_symbol 
+		AND c.product_2_symbol = t.base_fiat 
+		AND c."source" = 'coinmarketcap'
+	LEFT JOIN public.cryptocurrency_prices cp ---- SOME assets don't have HOUR prices, USING average_highlow IN that case
+		ON DATE_TRUNC('day', t.created_at) = DATE_TRUNC('day', cp."updatedAt") 
+		AND ((cp.product_1_symbol = t.product_1_symbol) OR (cp.product_1_symbol = 'MIOTA' AND t.product_1_symbol='IOTA')) 
+		AND cp.product_2_symbol = t.base_fiat 
+		AND cp."source" = 'coinmarketcap'
+WHERE 
+	i.symbol IN ('ATOMUSDT','AAVEUSDT','ALGOIDR','AVAXIDR','AVAXUSDT','AXSIDR','AXSUSDT','BAKEIDR','AAVEIDR','TFUELIDR','BAKEUSDT','BATIDR','ALGOUSDT','DOGESGD','ADATHB','BNBSGD','BNBTHB','BNTIDR','CHZIDR','FILIDR','GRTIDR','DOGETHB','ADASGD','HBARIDR','HOTIDR','BNTUSDT','CAKEIDR','CAKEUSDT','HBARUSDT','CHZUSDT','IOSTIDR','DOGEAUD','BNBAUD','HOTUSDT','IOSTUSDT','IOTAIDR','IOTAUSDT','KSMIDR','RUNEIDR','ADAAUD','SUSHIIDR','MANAIDR','MANAUSDT','MATICIDR','MATICUSDT','NANOIDR','NANOUSDT','NEOIDR','NEOUSDT','ONEIDR','ONEUSDT','QTUMIDR','VETIDR','VETUSDT','WAVESIDR','WAVESUSDT','XEMIDR','XEMUSDT','ZILIDR','ZILUSDT','ZRXIDR','ZRXUSDT','COMPIDR','COMPSGD','COMPUSD','TFUELUSDT','THETAIDR','THETAUSDT','TRXIDR','TRXUSDT','SANDUSDT','SANDUSD','COMPUSDT','DOGEUSD','ENJUSDT','MKRUSDT','OMGUSDT','SXPUSDT','YFIUSDT','OMGIDR','OMGUSD','SXPAUD','SXPSGD','YFIIDR','YFITHB','COMPAUD','COMPTHB','SANDAUD','SANDIDR','SANDSGD','SANDTHB','MKRUSD','OMGAUD','YFIUSD','QTUMUSDT','RENIDR','RENUSDT','RUNEUSDT','SNXIDR','SNXUSDT','SOLIDR','SOLUSDT','SUSHIUSDT','MKRAUD','MKRSGD','OMGSGD','ATOMIDR','BATUSDT','DASHIDR','SXPIDR','SXPUSD','YFISGD','ADAUSDT','BNBUSDT','DOGEUSDT','ADAIDR','BNBIDR','DOGEIDR','BNBUSD','ADAUSD','DASHUSDT','FILUSDT','GRTUSDT','KSMUSDT','ENJAUD','ENJIDR','ENJSGD','ENJTHB','ENJUSD','MKRIDR','MKRTHB','OMGTHB','SXPTHB','YFIAUD')
+	AND t.signup_hostcountry IN ('ID')
+	AND t.created_at AT time ZONE 'Asia/Jakarta' >= '2021-08-10 01:00:00'
+	AND t.created_at AT time ZONE 'Asia/Jakarta' < '2021-08-10 06:31:00'
+ORDER BY 1 
+
+
+SELECT
+	created_at AT time ZONE 'Asia/Jakarta' created_at 
+	, *
+FROM analytics.trades_master tm 
+WHERE trade_id IN (22142048,22146043,22145332)
