@@ -26,11 +26,12 @@ convert time_sticks in apex (637563414221078007 is not EPOCH) to datetime_ and h
   637554240000000000 = '2021-05-01 00:00:00'
   apex.instruments :: product symbol/ product id 
 
-SELECT tick_to_timestamp(637694511999990000)
+  tick_to_timestamp(637694511999990000)
+  
+SELECT FROM_UNIXTIME((637837943788160965 - 621355968000000000) / 10000000) 
 
-
-FROM_UNIXTIME((637554240000000000 - 621355968000000000) / 10000000) 
-
+-- split string IN mySQL:
+SUBSTRING_INDEX(*text*,'',1) 
   
 SELECT order_type 
 	, count(*)

@@ -57,13 +57,13 @@ WITH coin_base AS (
 				warehouse.zip_up_service_public.user_settings s
 				ON u.user_id = s.user_id 
 		WHERE 
-			a.created_at >= '2022-02-01' -- >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL
+			a.created_at >= '2022-06-01' -- >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL
 			AND a.created_at < DATE_TRUNC('month', NOW()) 
 			AND a.symbol NOT IN ('TST1','TST2')
 		--	AND ((a.created_at = DATE_TRUNC('month', a.created_at) + '1 month' - '1 day'::INTERVAL) OR (a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL))
 			AND u.signup_hostcountry IN ('TH','ID','AU','global')
 			AND zc.symbol IS NOT NULL
-		GROUP BY 1,2,3,4,5,6
+		GROUP BY 1,2,3,4,5,6,7
 		ORDER BY 1 DESC 
 )	, aum_snapshot AS (
 		SELECT 
@@ -163,7 +163,7 @@ WITH coin_base AS (
 		WHERE 
 			ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping)
 			AND signup_hostcountry IN ('TH','ID','AU','global')
-			AND DATE_TRUNC('day', created_at) >= '2022-02-01' --  >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL 
+			AND DATE_TRUNC('day', created_at) >= '2022-06-01' --  >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL 
 			AND created_at < DATE_TRUNC('month', NOW()) 
 --- deposit + withdrawl 
 )	, deposit_ AS ( 
@@ -230,7 +230,7 @@ WITH coin_base AS (
 				AND d.month_ = w.month_ 
 				AND d.product_symbol = w.product_symbol 
 		WHERE 
-			COALESCE(d.month_, w.month_) >= '2022-02-01' --  >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL 
+			COALESCE(d.month_, w.month_) >= '2022-06-01' --  >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL 
 			AND COALESCE(d.month_, w.month_) < DATE_TRUNC('month', NOW())
 		GROUP BY 
 			1,2,3
@@ -265,7 +265,7 @@ WITH coin_base AS (
 	WHERE 
 		p.completed_at IS NOT NULL
 		AND um.ap_account_id IS NOT NULL 
-		AND DATE_TRUNC('day', p.completed_at) >= '2022-02-01' --  >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL
+		AND DATE_TRUNC('day', p.completed_at) >= '2022-06-01' --  >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL
 		AND p.completed_at < DATE_TRUNC('month', NOW())
 	GROUP BY 1,2,3
 -- Z Launch active users = average ZMT lock amount > 0
@@ -294,7 +294,7 @@ WITH coin_base AS (
 			ON z.user_id = u.user_id 
 	WHERE 
 		p."period" = 'day'
-		AND DATE_TRUNC('day', p.created_at) >= '2022-02-01' --  >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL
+		AND DATE_TRUNC('day', p.created_at) >= '2022-06-01' --  >= DATE_TRUNC('month', NOW()::DATE - '1 day'::INTERVAL) - '1 month'::INTERVAL
 		AND p.created_at < DATE_TRUNC('month', NOW())
 	GROUP BY 1,2,3,4
 )	, zlaunch_snapshot AS (
@@ -354,22 +354,23 @@ WITH coin_base AS (
 SELECT
 	created_at::DATE
 	, signup_hostcountry
-	, COUNT(DISTINCT active_trader) trader_count
-	, COUNT(DISTINCT zipup_user) zipup_user_count
-	, COUNT(DISTINCT total_ziplock_user) total_ziplock_user
-	, COUNT(DISTINCT ziplock_mix_user) ziplock_mix_user
-	, COUNT(DISTINCT ziplock_nozmt_user) ziplock_nozmt_user
-	, COUNT(DISTINCT ziplock_zmt_user) ziplock_zmt_user
-	, COUNT(DISTINCT CASE WHEN created_at <= '2021-09-30 00:00:00' THEN mtu_1 ELSE mtu_3 END) mtu_count
-	, COUNT(DISTINCT active_balance_user_n) active_balance_count
-	, COUNT(DISTINCT avg_zipup_nonzmt_zw_user) non_zmt_zipup_zw_user_count
-	, COUNT(DISTINCT depositor_withdrawer) depositor_withdrawer
-	, COUNT(DISTINCT mtu_1) mtu_1_all_balance
-	, COUNT(DISTINCT mtu_2) mtu_2_1usd_nonzmt
-	, COUNT(DISTINCT mtu_3) mtu_3_1usd_all
-	, COUNT(DISTINCT zipwold_user) zipwold_user
-	, COUNT(DISTINCT zlaunch_staker) zlaunch_staker
+	, mtu_3
+--	, COUNT(DISTINCT active_trader) trader_count
+--	, COUNT(DISTINCT zipup_user) zipup_user_count
+--	, COUNT(DISTINCT total_ziplock_user) total_ziplock_user
+--	, COUNT(DISTINCT ziplock_mix_user) ziplock_mix_user
+--	, COUNT(DISTINCT ziplock_nozmt_user) ziplock_nozmt_user
+--	, COUNT(DISTINCT ziplock_zmt_user) ziplock_zmt_user
+--	, COUNT(DISTINCT CASE WHEN created_at <= '2021-09-30 00:00:00' THEN mtu_1 ELSE mtu_3 END) mtu_count
+--	, COUNT(DISTINCT active_balance_user_n) active_balance_count
+--	, COUNT(DISTINCT avg_zipup_nonzmt_zw_user) non_zmt_zipup_zw_user_count
+--	, COUNT(DISTINCT depositor_withdrawer) depositor_withdrawer
+--	, COUNT(DISTINCT mtu_1) mtu_1_all_balance
+--	, COUNT(DISTINCT mtu_2) mtu_2_1usd_nonzmt
+--	, COUNT(DISTINCT mtu_3) mtu_3_1usd_all
+--	, COUNT(DISTINCT zipwold_user) zipwold_user
+--	, COUNT(DISTINCT zlaunch_staker) zlaunch_staker
 FROM
 	final_table
-GROUP BY 1,2
+--GROUP BY 1,2
 ;

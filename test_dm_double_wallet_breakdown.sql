@@ -1,10 +1,14 @@
 --DROP TABLE IF EXISTS warehouse.bo_testing.dm_double_wallet;
+--ALTER TABLE warehouse.bo_testing.dm_double_wallet REPLICA IDENTITY FULL;
+--
+--DELETE FROM warehouse.bo_testing.dm_double_wallet WHERE monthly_balance >= '2022-05-01';
 
 CREATE TABLE IF NOT EXISTS warehouse.bo_testing.dm_double_wallet 
 (
 	monthly_balance				DATE
 	, signup_hostcountry		VARCHAR(255)
 	, asset_group 				VARCHAR(255)
+	, product_type				INTEGER
 	, trade_wallet_amount_usd	NUMERIC
 	, z_wallet_amount_usd		NUMERIC
 	, trade_wallet_zipup_usd	NUMERIC
@@ -17,8 +21,6 @@ CREATE TABLE IF NOT EXISTS warehouse.bo_testing.dm_double_wallet
 
 CREATE INDEX IF NOT EXISTS idx_dm_double_wallet ON warehouse.bo_testing.dm_double_wallet 
 (monthly_balance, signup_hostcountry, asset_group);
-
-DROP TABLE IF EXISTS tmp_dm_double_wallet;
 
 CREATE TEMP TABLE IF NOT EXISTS tmp_dm_double_wallet AS
 (
@@ -54,7 +56,7 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_double_wallet AS
 						THEN TRUE ELSE FALSE END)
 					END AS is_nominee 
 			, CASE WHEN a.ap_account_id = 496001 THEN TRUE ELSE FALSE END AS is_asset_manager
-			, a.symbol 
+			, a.symbol , r.product_type 
 			, CASE WHEN u.signup_hostcountry = 'TH' THEN
 				(CASE WHEN a.created_at < '2022-05-08' THEN s.tnc_accepted_at ELSE u.zipup_subscribed_at END)
 				WHEN u.signup_hostcountry = 'ID' THEN
@@ -129,7 +131,7 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_double_wallet AS
 				warehouse.zip_up_service_public.user_settings s
 				ON u.user_id = s.user_id 
 		WHERE 
-			a.created_at >= '2022-01-01' AND a.created_at < '2022-06-01' -- DATE_TRUNC('month', NOW()) 
+			a.created_at >= '2022-05-01' AND a.created_at < '2022-07-01' -- DATE_TRUNC('month', NOW()) 
 			AND u.signup_hostcountry IN ('TH','ID','AU','global')
 			AND ((a.created_at = DATE_TRUNC('month', a.created_at) + '1 month' - '1 day'::INTERVAL) OR (a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL))
 			AND a.symbol NOT IN ('TST1','TST2')
@@ -141,6 +143,7 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_double_wallet AS
 			, CASE WHEN symbol <> 'ZMT' AND zipup_coin = TRUE THEN 'zipup_coin' 
 					WHEN symbol = 'ZMT' THEN 'ZMT' 
 					ELSE 'other' END AS asset_group
+			, product_type
 			, SUM(COALESCE (trade_wallet_amount_usd, 0)) trade_wallet_amount_usd
 			, SUM(COALESCE (z_wallet_amount_usd, 0)) z_wallet_amount_usd
 			, SUM( CASE WHEN zipup_subscribed_at IS NOT NULL AND created_at >= DATE_TRUNC('day', zipup_subscribed_at) AND zipup_coin = TRUE 
@@ -156,7 +159,7 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_double_wallet AS
 		WHERE 
 			is_asset_manager = FALSE AND is_nominee = FALSE 
 		GROUP BY 
-			1,2,3
+			1,2,3,4
 		ORDER BY
 			1 
 	)	, aum_zlaunch AS (

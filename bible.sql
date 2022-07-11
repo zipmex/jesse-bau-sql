@@ -23,20 +23,20 @@ SELECT tick_to_timestamp((1632463800000 - 621355968000000000) / 10000000)
 
 
 SELECT 
-	up.email 
-	, um.*
+	um.*
 FROM analytics_pii.users_pii up 
 	LEFT JOIN analytics.users_master um 
 	ON up.user_id = um.user_id 
-WHERE up.ap_account_id IN (1047)
+WHERE um.user_id = '01FXVZG3NYP2AFFPH0EBCF5J0H'
 ;
 
 
 
 SELECT 
-    DISTINCT symbol , "type" 
-FROM apex.products p 
-WHERE p.product_id IN (10, 12, 11, 6, 14, 30, 33, 34, 8, 1, 25, 3, 27)
+	id, email 
+FROM user_app_public.users u 
+
+
 
 ----- date time function 
 SELECT DATE_TRUNC('day',NOW()) date_only

@@ -142,35 +142,14 @@ WHERE email IN ('')
 
 
 
-
-
 -- global users using NRIC
 SELECT 
 	od.user_id 
 	, up.email 
-	, up.mobile_number 
-	, od.first_name 
-	, od.last_name 
 	, od.country document_country
 	, um.signup_hostcountry
 	, pi2.info ->> 'present_address_country' pi_present_address_country
 	, COUNT(DISTINCT od.user_id) user_count
---	od.user_id 
---	, od.first_name 
---	, od.last_name 
---	, od.dob 
---	, od.document_type 
---	, od.country document_country
---	, um.signup_hostcountry
---	, um.is_verified 
---	, pi2.info ->> 'nationality' pi_nationality
---	, pi2.info ->> 'gender' pi_gender
---	, pi2.info ->> 'gender' pi_gender
---	, pi2.info ->> 'present_address_country' pi_present_address_country
---	, d.product_1_symbol deposit_token
---	, SUM(d.sum_coin_deposit_amount) sum_deposit_amount_sgd
---	, COUNT(DISTINCT od.user_id) total_user_count
---	, COUNT(DISTINCT CASE WHEN um.is_verified = TRUE THEN od.user_id END) verified_user_count
 FROM user_app_public.onfido_documents od 
 	LEFT JOIN 
 		analytics_pii.users_pii up  
@@ -182,18 +161,14 @@ FROM user_app_public.onfido_documents od
 		user_app_public.personal_infos pi2 
 		ON od.user_id = pi2.user_id 
 		AND pi2.archived_at IS NULL
-	LEFT JOIN 
-		reportings_data.dm_user_transactions_dwt_daily d
-		ON um.ap_account_id = d.ap_account_id 
-		AND d.product_1_symbol = 'SGD'
 WHERE 
 	od.archived_at IS NULL 
 	AND um.signup_hostcountry = 'global'
 	AND um.is_verified = TRUE
-	AND od.country = 'THA'
-	AND pi2.info ->> 'present_address_country' = 'THA'
+	AND (od.country = 'THA' OR pi2.info ->> 'present_address_country' = 'THA')
+	AND up.email NOT LIKE '%@zipmex%' 
 --	AND od.document_type IN ('national_identity_card','OTHER','passport')
-GROUP BY 1,2,3,4,5,6,7,8
+GROUP BY 1,2,3,4,5
 
 
 

@@ -81,9 +81,16 @@ WITH register_base AS (
 			THEN TRUE ELSE FALSE END)
 			END AS is_nominee 
 		, CASE WHEN a.ap_account_id = 496001 THEN TRUE ELSE FALSE END AS is_asset_manager
+	-- zipup subscribe status to identify zipup amount
+		, (CASE WHEN u.signup_hostcountry = 'TH' THEN
+			(CASE WHEN a.created_at < '2022-05-24' THEN s.tnc_accepted_at ELSE u.zipup_subscribed_at END)
+			WHEN u.signup_hostcountry = 'ID' THEN
+			(CASE WHEN a.created_at < '2022-07-04' THEN s.tnc_accepted_at ELSE u.zipup_subscribed_at END)
+			WHEN u.signup_hostcountry IN ('AU','global') THEN
+			(CASE WHEN a.created_at < '2022-06-29' THEN s.tnc_accepted_at ELSE u.zipup_subscribed_at END)
+			END)::DATE AS zipup_subscribed_at
 		, a.symbol 
 		, CASE WHEN a.symbol = 'ZMT' THEN TRUE WHEN zc.symbol IS NOT NULL THEN TRUE ELSE FALSE END AS zipup_coin 
-		, u.zipup_subscribed_at 
 		, u.is_zipup_subscribed 
 		, trade_wallet_amount
 		, z_wallet_amount
@@ -98,10 +105,6 @@ WITH register_base AS (
 		, zlaunch_amount * r.price zlaunch_amount_usd
 	FROM 
 		analytics.wallets_balance_eod a 
---		RIGHT JOIN 
---            mappings.mtu_account_2022 ma 
---            ON a.ap_account_id = ma.mtu_3 
---            AND DATE_TRUNC('month', a.created_at)::DATE = ma.created_at::DATE
 		LEFT JOIN 
 			zipup_coin zc 
 			ON a.symbol = zc.symbol
@@ -111,11 +114,14 @@ WITH register_base AS (
 			analytics.users_master u 
 			ON a.ap_account_id = u.ap_account_id 
 		LEFT JOIN 
+			warehouse.zip_up_service_public.user_settings s
+			ON u.user_id = s.user_id 
+		LEFT JOIN 
 			analytics.rates_master r 
 			ON a.symbol = r.product_1_symbol 
 		    AND DATE_TRUNC('day', a.created_at) = DATE_TRUNC('day', r.created_at)
 	WHERE 
-		a.created_at >= '2022-03-01' AND a.created_at < DATE_TRUNC('month', NOW()) 
+		a.created_at >= '2022-06-01' AND a.created_at < DATE_TRUNC('month', NOW()) 
 		AND u.signup_hostcountry IN ('TH','ID','AU','global')
 		AND ((a.created_at = DATE_TRUNC('month', a.created_at) + '1 month' - '1 day'::INTERVAL) OR (a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL))
 		AND a.symbol NOT IN ('TST1','TST2')
@@ -125,14 +131,13 @@ WITH register_base AS (
 		DATE_TRUNC('month', created_at)::DATE created_at
 		, signup_hostcountry
 		, ap_account_id
-		, SUM( COALESCE (trade_wallet_amount, 0)) trade_wallet_amount
-		, SUM( COALESCE (z_wallet_amount, 0)) z_wallet_amount
-		, SUM( COALESCE (ziplock_amount, 0)) ziplock_amount
-		, SUM( COALESCE (zlaunch_amount, 0)) zlaunch_amount
-		, SUM( COALESCE (trade_wallet_amount_usd, 0)) trade_wallet_amount_usd
-		, SUM( COALESCE (z_wallet_amount_usd, 0)) z_wallet_amount_usd
 		, SUM( COALESCE (ziplock_amount_usd, 0)) ziplock_amount_usd
 		, SUM( COALESCE (zlaunch_amount_usd, 0)) zlaunch_amount_usd
+		, SUM( COALESCE (CASE WHEN zipup_subscribed_at IS NOT NULL AND created_at >= DATE_TRUNC('day', zipup_subscribed_at) AND zipup_coin = TRUE
+					THEN
+						(CASE 	WHEN created_at <= '2021-09-02 00:00:00' THEN COALESCE (trade_wallet_amount_usd, 0) + COALESCE (z_wallet_amount_usd, 0)
+								WHEN created_at > '2021-09-02 00:00:00' THEN COALESCE (z_wallet_amount_usd, 0) END)
+					END, 0)) AS zipup_subscribed_usd
 		, SUM( COALESCE (trade_wallet_amount_usd, 0) + COALESCE (z_wallet_amount_usd, 0) 
 					+ COALESCE (ziplock_amount_usd, 0) + COALESCE(zlaunch_amount_usd, 0) ) total_aum
 	FROM 
@@ -147,8 +152,10 @@ WITH register_base AS (
 			created_at
 			, ap_account_id
 			, signup_hostcountry
-			, total_aum 
+--			, SUM(total_aum) total_aum
+			, SUM(COALESCE (zipup_subscribed_usd, 0) + COALESCE (ziplock_amount_usd, 0)) total_aum
 		FROM aum_snapshot
+		GROUP BY 1,2,3
 	UNION ALL 
 		SELECT 
 			DATE_TRUNC('month', thour)::DATE created_at 
@@ -170,7 +177,7 @@ WITH register_base AS (
     FROM total_aum_plaung t 
         LEFT JOIN user_base u 
         ON t.created_at = u.register_month      
-	WHERE created_at >= '2022-03-01'
+	WHERE created_at >= '2022-06-01'
 ---- calculate cumulative attribution of user
 )	, cum_attribute AS (
 	SELECT 
@@ -183,7 +190,7 @@ WITH register_base AS (
 )
 SELECT
 	created_at 
---	, signup_hostcountry
+	, signup_hostcountry
 	, SUM( total_aum) total_aum
 	, SUM( CASE WHEN rank_ <= 50 THEN total_aum END) AS top50_usd_amount
     , SUM( CASE WHEN cumulative_attribution <= 0.01 THEN total_aum END) AS top1p_usd_amount
@@ -196,28 +203,28 @@ SELECT
 	, SUM( CASE WHEN cumulative_attribution > 0.2 AND cumulative_attribution <= 0.5 THEN total_aum END) AS top20to50p_usd_amount
 	, SUM( CASE WHEN cumulative_attribution > 0.5 AND cumulative_attribution <= 0.8 THEN total_aum END) AS top50to80p_usd_amount
 	, SUM( CASE WHEN cumulative_attribution > 0.8 THEN total_aum END) AS top80to100p_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution <= 0.01 THEN total_aum END) AS top1p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution <= 0.001 THEN total_aum END) AS top01p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution > 0.001 AND cumulative_register_attribution <= 0.005 THEN total_aum END) AS top05p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution > 0.005 AND cumulative_register_attribution <= 0.01 THEN total_aum END) AS top1p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution > 0.01 AND cumulative_register_attribution <= 0.05 THEN total_aum END) AS top2to5p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution > 0.05 AND cumulative_register_attribution <= 0.1 THEN total_aum END) AS top5to10p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution > 0.1 AND cumulative_register_attribution <= 0.2 THEN total_aum END) AS top10to20p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution > 0.2 AND cumulative_register_attribution <= 0.5 THEN total_aum END) AS top20to50p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution > 0.5 AND cumulative_register_attribution <= 0.8 THEN total_aum END) AS top50to80p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_register_attribution > 0.8 THEN total_aum END) AS top80to100p_reg_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution <= 0.01 THEN total_aum END) AS top1p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution <= 0.001 THEN total_aum END) AS top01p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution > 0.001 AND cumulative_verify_attribution <= 0.005 THEN total_aum END) AS top05p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution > 0.005 AND cumulative_verify_attribution <= 0.01 THEN total_aum END) AS top1p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution > 0.01 AND cumulative_verify_attribution <= 0.05 THEN total_aum END) AS top2to5p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution > 0.05 AND cumulative_verify_attribution <= 0.1 THEN total_aum END) AS top5to10p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution > 0.1 AND cumulative_verify_attribution <= 0.2 THEN total_aum END) AS top10to20p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution > 0.2 AND cumulative_verify_attribution <= 0.5 THEN total_aum END) AS top20to50p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution > 0.5 AND cumulative_verify_attribution <= 0.8 THEN total_aum END) AS top50to80p_ver_usd_amount
-	, SUM( CASE WHEN cumulative_verify_attribution > 0.8 THEN total_aum END) AS top80to100p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution <= 0.01 THEN total_aum END) AS top1p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution <= 0.001 THEN total_aum END) AS top01p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution > 0.001 AND cumulative_register_attribution <= 0.005 THEN total_aum END) AS top05p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution > 0.005 AND cumulative_register_attribution <= 0.01 THEN total_aum END) AS top1p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution > 0.01 AND cumulative_register_attribution <= 0.05 THEN total_aum END) AS top2to5p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution > 0.05 AND cumulative_register_attribution <= 0.1 THEN total_aum END) AS top5to10p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution > 0.1 AND cumulative_register_attribution <= 0.2 THEN total_aum END) AS top10to20p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution > 0.2 AND cumulative_register_attribution <= 0.5 THEN total_aum END) AS top20to50p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution > 0.5 AND cumulative_register_attribution <= 0.8 THEN total_aum END) AS top50to80p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_register_attribution > 0.8 THEN total_aum END) AS top80to100p_reg_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution <= 0.01 THEN total_aum END) AS top1p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution <= 0.001 THEN total_aum END) AS top01p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution > 0.001 AND cumulative_verify_attribution <= 0.005 THEN total_aum END) AS top05p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution > 0.005 AND cumulative_verify_attribution <= 0.01 THEN total_aum END) AS top1p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution > 0.01 AND cumulative_verify_attribution <= 0.05 THEN total_aum END) AS top2to5p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution > 0.05 AND cumulative_verify_attribution <= 0.1 THEN total_aum END) AS top5to10p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution > 0.1 AND cumulative_verify_attribution <= 0.2 THEN total_aum END) AS top10to20p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution > 0.2 AND cumulative_verify_attribution <= 0.5 THEN total_aum END) AS top20to50p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution > 0.5 AND cumulative_verify_attribution <= 0.8 THEN total_aum END) AS top50to80p_ver_usd_amount
+--	, SUM( CASE WHEN cumulative_verify_attribution > 0.8 THEN total_aum END) AS top80to100p_ver_usd_amount
 FROM cum_attribute
-GROUP BY 1
+GROUP BY 1,2
 ;
 
 

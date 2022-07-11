@@ -93,9 +93,15 @@ DROP TABLE IF EXISTS tmp_commercial_pcs_gl_1st_of_month;
 
 
 -- pcs datamart
+WITH user_features AS (
+	SELECT 
+		*
+		, ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY updated_at) row_ 
+	FROM user_app_public.user_features uf 
+)
 SELECT 
---	*,
-	um.created_at::DATE register_date
+	NOW()::DATE inserted_at
+	, um.created_at::DATE register_date
 	, um.verification_approved_at::DATE verified_date 
 	, um.user_id 
 	, um.ap_account_id 
@@ -123,9 +129,12 @@ SELECT
 	, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.sum_usd_deposit_amount END) l30d_deposit_usd
 	, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.sum_usd_withdraw_amount END) l30d_withdraw_usd
 	, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.sum_usd_trade_amount  END) l30d_trade_usd
+--	, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN zd.transfer_to_zwallet_usd END) l30d_transfer_to_zwallet_usd
+--	, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN zd.withdraw_from_zwallet_usd END) l30d_withdraw_from_zwallet_usd
 FROM analytics.users_master um 
-	LEFT JOIN user_app_public.user_features uf 
+	LEFT JOIN user_features uf 
 		ON um.user_id = uf.user_id 
+		AND row_ = 1
 	LEFT JOIN user_app_public.features f 
 		ON uf.feature_id = f.id 
 	LEFT JOIN analytics_pii.users_pii up 
@@ -138,9 +147,11 @@ FROM analytics.users_master um
 		AND cnl2.pcs_type != 'PCS'
 	LEFT JOIN zip_lock_service_public.user_loyalty_tiers ult 
 		ON um.user_id = ult.user_id 
-	LEFT JOIN reportings_data.dm_user_transactions_dwt_daily d
+	LEFT JOIN reportings_data.dm_user_transactions_dwt_hourly d
 		ON um.user_id = d.user_id 
-	LEFT JOIN reportings_data.dm_zw_daily_transations zd 
+	LEFT JOIN bo_testing.dm_zw_hourly_transations zd 
+		ON um.ap_account_id = zd.ap_account_id 
+		AND zd.product_1_symbol IN (SELECT DISTINCT symbol FROM mappings.zip_up_rates_master zurm WHERE ended_at IS NULL)
 WHERE 
 	CASE WHEN um.signup_hostcountry = 'TH' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
 			WHEN um.signup_hostcountry = 'ID' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
@@ -150,8 +161,7 @@ WHERE
 	AND (f.code NOT IN ('TEST','INTERNAL') OR f.code IS NULL)
 	AND um.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping)
 --	AND um.user_id = '01EYKWGFG45WE55BKWHGX1KE2R'
-GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12
-;
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13
 
 
 
@@ -255,39 +265,74 @@ ORDER BY 3
 ;
 
 
-WITH base AS (
-	SELECT 
-		register_date
-		, dpu.register_date
-		, dpu.verified_at
-		, dpu.user_id
-		, dpu.ap_account_id
-		, dpu.signup_hostcountry
-		, dpu.is_zipup_subscribed
-		, dpu.pcs_lifetime_day
-		, dpu.pcs_tagged_at
-		, CASE WHEN dpu.pcs_status IS NULL THEN dpu.near_pcs_status ELSE dpu.pcs_status END AS pcs_status	
-		, dpu.vip_tier
-		, dpu.zmt_lock_amount
-		, dpu.l30d_deposit_usd
-		, dpu.l30d_withdraw_usd
-		, dpu.l30d_trade_usd
-		, dpu.l30d_transfer_to_zwallet_usd
-		, dpu.l30d_withdraw_from_zwallet_usd
-		, dpu.balanced_at
-		, dpu.asset_on_platform_usd
-		, dpu.zmt_trade_wallet_amount_usd
-		, dpu.zmt_z_wallet_amount_usd
-		, dpu.non_zmt_trade_wallet_amount_usd
-		, dpu.non_zmt_z_wallet_amount_usd
-		, dpu.zmt_zipup_usd
-		, dpu.non_zmt_zipup_usd
-		, up.first_name 
-		, up.last_name 
-		, up.email 
-		, up.mobile_number 
-		, up.dob::DATE 
-	FROM bo_testing.dm_pcs_user dpu 
-		LEFT JOIN 
-			analytics_pii.users_pii up 
-			ON dpu.user_id = up.user_id 
+WITH seg_base AS (
+	SELECT *
+	FROM mappings.commercial_customer_segmentation_th
+	UNION ALL
+	SELECT *
+	FROM mappings.commercial_customer_segmentation_id
+	UNION ALL
+	SELECT *
+	FROM mappings.commercial_customer_segmentation_au
+	UNION ALL
+	SELECT *
+	FROM mappings.commercial_customer_segmentation_global
+)
+SELECT 
+	dpu.balanced_at
+	, dpu.user_id
+	, dpu.ap_account_id
+	, dpu.signup_hostcountry
+	, sb.customer_segment
+	, dpu.register_date
+	, dpu.verified_at
+	, up.email 
+	, up.first_name 
+	, up.last_name 
+	, up.mobile_number 
+	, up.dob::DATE 
+	, dpu.pcs_tagged_at
+	, CASE WHEN dpu.pcs_status IS NULL THEN dpu.near_pcs_status ELSE dpu.pcs_status END AS pcs_status	
+	, dpu.vip_tier
+	, dpu.is_zipup_subscribed
+	, dpu.l30d_deposit_usd
+	, dpu.l30d_withdraw_usd
+	, dpu.zmt_release_this_month 
+	, dpu.zmt_release_next_month 
+	, dpu.asset_on_platform_usd
+	, dpu.zmt_trade_wallet_amount_usd
+	, dpu.zmt_z_wallet_amount_usd
+	, dpu.zmt_zipup_usd
+	, dpu.zmt_lock_amount
+	, dpu.non_zmt_trade_wallet_amount_usd
+	, dpu.non_zmt_z_wallet_amount_usd
+	, dpu.non_zmt_zipup_usd
+	, dpu.l30d_transfer_to_zwallet_usd zipup_deposit_transfer
+	, dpu.l30d_withdraw_from_zwallet_usd zipup_withdraw_transfer
+	, dpu.l30d_trade_usd
+FROM bo_testing.dm_pcs_user dpu 
+-- customer segment as of Mar 31st 2022
+	LEFT JOIN seg_base sb 
+		ON dpu.ap_account_id = sb.ap_account_id::INT 
+	LEFT JOIN 
+		analytics_pii.users_pii up 
+		ON dpu.user_id = up.user_id 
+		
+-- validate data 
+)
+SELECT 
+	signup_hostcountry 
+	, pcs_status 
+	, COUNT(user_id) 
+	, COUNT(DISTINCT user_id)
+FROM base 
+GROUP BY 1,2
+;
+
+
+SELECT *
+FROM reportings_data.dm_zw_hourly_transations zd 
+WHERE zd.product_1_symbol IN (SELECT DISTINCT symbol FROM mappings.zip_up_rates_master zurm WHERE ended_at IS NULL)
+
+
+SELECT ap_account_id FROM mappings.commercial_adhoc_th_telesales cact

@@ -81,7 +81,7 @@ WHERE
 	AND ((a.created_at = DATE_TRUNC('month', a.created_at) + '1 month' - '1 day'::INTERVAL) OR (a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL))
 	AND a.symbol NOT IN ('TST1','TST2')
 ORDER BY 1 DESC 
-)	, aum_snapshot AS (
+)	--, aum_snapshot AS (
 SELECT 
 	DATE_TRUNC('month', created_at) created_at 
 	, signup_hostcountry
@@ -154,7 +154,7 @@ WITH coin_base AS (
 	SELECT 
 		a.created_at::DATE 
 		, CASE WHEN u.signup_hostcountry IS NULL THEN 'unknown' ELSE u.signup_hostcountry END AS signup_hostcountry
-		, a.ap_account_id 
+		, a.ap_account_id , up.email 
 	-- filter nominee accounts from users_mapping
 		, CASE WHEN a.created_at < '2022-05-05' THEN  
 			( CASE WHEN a.ap_account_id IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping WHERE ap_account_id NOT IN (496001))
@@ -178,7 +178,7 @@ WITH coin_base AS (
 		, CASE WHEN a.symbol = 'ZMT' THEN TRUE 
 				WHEN zc.symbol IS NOT NULL THEN TRUE 
 				ELSE FALSE END AS zipup_coin 
-		, r.price usd_rate 
+		, r.price usd_rate , r.product_type 
 		, trade_wallet_amount
 		, z_wallet_amount
 		, ziplock_amount
@@ -213,61 +213,57 @@ WITH coin_base AS (
 		LEFT JOIN 
 			mappings.users_mapping um 
 			ON a.ap_account_id = um.ap_account_id 
+		LEFT JOIN analytics_pii.users_pii up 
+			ON u.user_id = up.user_id 
 	WHERE 
-		a.created_at >= '2022-06-01' --AND a.created_at < '2022-06-01'
+		a.created_at >= '2022-05-01' AND a.created_at < '2022-08-01'
 	-- exclude test products
 		AND a.symbol NOT IN ('TST1','TST2')
-	    AND ((a.created_at = DATE_TRUNC('month', a.created_at) + '1 month' - '1 day'::INTERVAL) OR (a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL))
+--	    AND ((a.created_at = DATE_TRUNC('month', a.created_at) + '1 month' - '1 day'::INTERVAL) OR (a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL))
 		AND u.signup_hostcountry IN ('TH','ID','AU','global')
---		AND a.symbol IN ('C8P')
---		AND a.ap_account_id IN (39885,140240,142618,248506,104703)
+		AND a.symbol IN ('BTC','ETH','USDC','USDT')
 	ORDER BY 1 DESC 
-)	, aum_snapshot AS (
+)--	, aum_snapshot AS (
 	SELECT 
 		DATE_TRUNC('day', b.created_at)::DATE created_at
 		, b.signup_hostcountry
---		, CASE WHEN nominee_type IS NULL THEN 'customer_accounts' ELSE 'mm_accounts' END AS account_type
-		, ap_account_id
---		, b.nominee_type
 --		, b.symbol asset_group
---		, CASE WHEN symbol <> 'ZMT' AND zipup_coin = TRUE THEN 'zipup_coin' 
---				WHEN symbol = 'ZMT' THEN 'ZMT' 
---				ELSE 'other' END AS asset_group
+		, CASE WHEN symbol <> 'ZMT' AND zipup_coin = TRUE THEN symbol 
+				WHEN symbol = 'ZMT' THEN 'ZMT' 
+				ELSE 'other' END AS asset_group
+--		, vip_tier
 --		, SUM( COALESCE (trade_wallet_amount, 0)) trade_wallet_amount
---		, SUM( COALESCE (z_wallet_amount, 0)) z_wallet_amount
+		, SUM( COALESCE (z_wallet_amount, 0)) z_wallet_amount
 --		, SUM( COALESCE (ziplock_amount, 0)) ziplock_amount
 --		, SUM( COALESCE (zlaunch_amount, 0)) zlaunch_amount
---		, SUM( COALESCE (CASE WHEN zipup_subscribed_at IS NOT NULL AND created_at >= DATE_TRUNC('day', zipup_subscribed_at) AND symbol IN ('BTC', 'USDT', 'USDC', 'GOLD', 'LTC', 'ETH', 'ZMT')
---					THEN
---						(CASE 	WHEN created_at <= '2021-09-02 00:00:00' THEN COALESCE (trade_wallet_amount, 0) + COALESCE (z_wallet_amount, 0)
---								WHEN created_at > '2021-09-02 00:00:00' THEN COALESCE (z_wallet_amount, 0) END)
---					END, 0)) AS zwallet_subscribed_amount
-		, SUM( COALESCE (trade_wallet_amount, 0) + COALESCE (z_wallet_amount, 0) 
-					+ COALESCE (ziplock_amount, 0) + COALESCE (zlaunch_amount, 0)) total_coin_amount
-		, SUM( COALESCE (trade_wallet_amount_usd, 0)) trade_wallet_amount_usd
-		, SUM( COALESCE (z_wallet_amount_usd, 0)) z_wallet_amount_usd
-		, SUM( COALESCE (ziplock_amount_usd, 0)) ziplock_amount_usd
+		, SUM( COALESCE (CASE WHEN zipup_subscribed_at IS NOT NULL AND created_at >= DATE_TRUNC('day', zipup_subscribed_at) AND symbol IN ('BTC', 'USDT', 'USDC', 'GOLD', 'LTC', 'ETH', 'ZMT')
+					THEN
+						(CASE 	WHEN created_at <= '2021-09-02 00:00:00' THEN COALESCE (trade_wallet_amount, 0) + COALESCE (z_wallet_amount, 0)
+								WHEN created_at > '2021-09-02 00:00:00' THEN COALESCE (z_wallet_amount, 0) END)
+					END, 0)) AS zwallet_subscribed_amount
+--		, SUM( COALESCE (trade_wallet_amount, 0) + COALESCE (z_wallet_amount, 0) 
+--					+ COALESCE (ziplock_amount, 0) + COALESCE (zlaunch_amount, 0)) total_coin_amount
+--		, SUM( COALESCE (trade_wallet_amount_usd, 0)) trade_wallet_amount_usd
+--		, SUM( COALESCE (z_wallet_amount_usd, 0)) z_wallet_amount_usd
+--		, SUM( COALESCE (ziplock_amount_usd, 0)) ziplock_amount_usd
 --		, SUM( COALESCE (zlaunch_amount_usd, 0)) zlaunch_amount_usd
---		, SUM( COALESCE (CASE WHEN zipup_subscribed_at IS NOT NULL AND b.created_at >= DATE_TRUNC('day', zipup_subscribed_at) AND symbol IN ('BTC', 'USDT', 'USDC', 'GOLD', 'LTC', 'ETH', 'ZMT')
+--		, SUM( COALESCE (CASE WHEN zipup_subscribed_at IS NOT NULL AND b.created_at >= DATE_TRUNC('day', zipup_subscribed_at) AND zipup_coin = TRUE
 --					THEN
 --						(CASE 	WHEN b.created_at <= '2021-09-02 00:00:00' THEN COALESCE (trade_wallet_amount_usd, 0) + COALESCE (z_wallet_amount_usd, 0)
 --								WHEN b.created_at > '2021-09-02 00:00:00' THEN COALESCE (z_wallet_amount_usd, 0) END)
 --					END, 0)) AS zipup_subscribed_usd
-		, SUM( COALESCE (trade_wallet_amount_usd, 0) + COALESCE (z_wallet_amount_usd, 0) 
-					+ COALESCE (ziplock_amount_usd, 0) + COALESCE (zlaunch_amount_usd, 0)) total_aum_usd
+--		, SUM( COALESCE (trade_wallet_amount_usd, 0) + COALESCE (z_wallet_amount_usd, 0) 
+--					+ COALESCE (ziplock_amount_usd, 0) + COALESCE (zlaunch_amount_usd, 0)) total_aum_usd
 	FROM 
 		base b
 	WHERE 
 		is_asset_manager = FALSE AND is_nominee = FALSE
+--		AND z_wallet_amount > 0
 	GROUP BY 
 		1,2,3
-)
-SELECT 
-	created_at
-	, signup_hostcountry
-	, COUNT(DISTINCT CASE WHEN (z_wallet_amount_usd + ziplock_amount_usd) > 0 THEN ap_account_id END ) active_zw_account
-FROM aum_snapshot
-GROUP BY 1,2
+	ORDER BY 1,2
+
+
 
 )
 SELECT 
@@ -308,5 +304,6 @@ GROUP BY
 ;
 
 
-
+SELECT *
+FROM bo_testing.dm_double_wallet ddw 
 ;

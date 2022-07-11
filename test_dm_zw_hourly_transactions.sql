@@ -1,8 +1,9 @@
-DROP TABLE IF EXISTS warehouse.bo_testing.dm_zw_daily_transations_utc;
 
-CREATE TABLE IF NOT EXISTS warehouse.bo_testing.dm_zw_daily_transations_utc
+DROP TABLE IF EXISTS warehouse.bo_testing.dm_zw_hourly_transations;
+
+CREATE TABLE IF NOT EXISTS warehouse.bo_testing.dm_zw_hourly_transations
 (
-	created_at							DATE
+	created_at							TIMESTAMP
 	, ap_account_id						INTEGER
 	, product_1_symbol					VARCHAR(255)
 	, zw_deposit_count					NUMERIC
@@ -25,19 +26,19 @@ CREATE TABLE IF NOT EXISTS warehouse.bo_testing.dm_zw_daily_transations_utc
 	, zlaunch_unlock_usd				NUMERIC
 );
 
-CREATE INDEX IF NOT EXISTS idx_dm_zw_daily_transations_utc ON warehouse.bo_testing.dm_zw_daily_transations_utc
+CREATE INDEX IF NOT EXISTS idx_dm_zw_hourly_transations ON warehouse.bo_testing.dm_zw_hourly_transations
 (created_at, ap_account_id, product_1_symbol);
 
-ALTER TABLE warehouse.bo_testing.dm_zw_daily_transations_utc REPLICA IDENTITY FULL;
+ALTER TABLE warehouse.bo_testing.dm_zw_hourly_transations REPLICA IDENTITY FULL;
 
---TRUNCATE TABLE warehouse.bo_testing.dm_zw_daily_transations_utc;
+--TRUNCATE TABLE warehouse.bo_testing.dm_zw_hourly_transations;
 
-CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_daily_transations AS 
+CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_hourly_transations AS 
 (
 -- zwallet transaction daily at account id level - from Aug 4 2021
 	WITH zw_deposit AS (
 		SELECT 
-			(dt.created_at)::DATE created_at
+			DATE_TRUNC('hour', dt.created_at) created_at
 			, dt.account_id 
 			, um.ap_account_id 
 			, um.signup_hostcountry 
@@ -57,7 +58,7 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_daily_transations AS
 		GROUP BY 1,2,3,4,5
 	)	, zw_withdraw AS (
 		SELECT 
-			(wt.created_at)::DATE created_at
+			DATE_TRUNC('hour', wt.created_at) created_at
 			, wt.account_id 
 			, um.ap_account_id 
 			, um.signup_hostcountry 
@@ -78,7 +79,7 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_daily_transations AS
 	)	, zw_deposit_withdraw AS (
 	-- join deposit and withdraw transactions
 		SELECT 
-			COALESCE(d.created_at, w.created_at)::DATE created_at 
+			COALESCE(d.created_at, w.created_at) created_at 
 			, COALESCE(d.ap_account_id, w.ap_account_id) ap_account_id
 			, COALESCE (d.product_1_symbol, w.product_1_symbol) product_1_symbol 
 			, SUM( COALESCE(d.zw_deposit_count, 0)) zw_deposit_count 
@@ -109,17 +110,17 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_daily_transations AS
 		LEFT JOIN 
 			analytics.rates_master rm 
 			ON z.product_1_symbol = rm.product_1_symbol 
-			AND z.created_at = rm.created_at 
+			AND z.created_at::DATE = rm.created_at::DATE
 	ORDER BY 1 DESC 
 );
 
 
-CREATE TEMP TABLE IF NOT EXISTS tmp_dm_ziplock_daily_transations AS 
+CREATE TEMP TABLE IF NOT EXISTS tmp_dm_ziplock_hourly_transations AS 
 (
 	-- ziplock transactions 
 	WITH ziplock_base AS (
 		SELECT 
-			(tt.created_at)::DATE created_at
+			DATE_TRUNC('hour', tt.created_at) created_at
 			, tt.to_account_id user_id
 			, um.ap_account_id 
 			, UPPER(SPLIT_PART(tt.product_id,'.',1)) product_1_symbol
@@ -161,15 +162,15 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_ziplock_daily_transations AS
 		, zlaunch_unlock_amount * rm.price zlaunch_unlock_usd
 	FROM ziplock_base zl
 		LEFT JOIN analytics.rates_master rm 
-			ON zl.created_at = rm.created_at 
+			ON zl.created_at::DATE = rm.created_at::DATE 
 			AND zl.product_1_symbol = rm.product_1_symbol 
 );
 
 
-CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_daily_final AS 
+CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_hourly_final AS 
 (
 	SELECT 
-		COALESCE(z.created_at, l.created_at)::DATE created_at 
+		COALESCE(z.created_at, l.created_at) created_at 
 		, COALESCE(z.ap_account_id, l.ap_account_id) ap_account_id
 		, COALESCE (z.product_1_symbol, l.product_1_symbol) product_1_symbol 
 		, SUM( COALESCE(z.zw_deposit_count, 0)) zw_deposit_count
@@ -190,9 +191,9 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_daily_final AS
 		, SUM( COALESCE(l.count_zlaunch_unstake, 0)) count_zlaunch_unstake
 		, SUM( COALESCE(l.zlaunch_unlock_amount, 0)) zlaunch_unlock_amount
 		, SUM( COALESCE(l.zlaunch_unlock_usd, 0)) zlaunch_unlock_usd
-	FROM tmp_dm_zw_daily_transations z
+	FROM tmp_dm_zw_hourly_transations z
 		FULL OUTER JOIN
-			tmp_dm_ziplock_daily_transations l 
+			tmp_dm_ziplock_hourly_transations l 
 			ON z.created_at = l.created_at
 			AND z.ap_account_id = l.ap_account_id
 			AND z.product_1_symbol = l.product_1_symbol
@@ -200,10 +201,10 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_zw_daily_final AS
 );
 
 
-INSERT INTO warehouse.bo_testing.dm_zw_daily_transations_utc
-( SELECT * FROM tmp_dm_zw_daily_final);
+INSERT INTO warehouse.bo_testing.dm_zw_hourly_transations
+( SELECT * FROM tmp_dm_zw_hourly_final);
 
 
-DROP TABLE IF EXISTS tmp_dm_zw_daily_transations;
-DROP TABLE IF EXISTS tmp_dm_ziplock_daily_transations;
-DROP TABLE IF EXISTS tmp_dm_zw_daily_final;
+DROP TABLE IF EXISTS tmp_dm_zw_hourly_transations;
+DROP TABLE IF EXISTS tmp_dm_ziplock_hourly_transations;
+DROP TABLE IF EXISTS tmp_dm_zw_hourly_final;

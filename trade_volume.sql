@@ -88,7 +88,9 @@ WITH pluang_trade_all AS (
             ON t.ap_account_id = zte.ap_account_id 
             AND DATE_TRUNC('month', t.created_at)::DATE = DATE_TRUNC('month', zte.created_at)::DATE
 	WHERE 
-		t.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping)
+		CASE WHEN t.created_at < '2022-05-05' THEN (t.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping))
+			ELSE (t.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping WHERE ap_account_id NOT IN (38121)))
+			END
 		AND t.signup_hostcountry IN ('TH','ID','AU','global')
 	GROUP BY
 		1,2,3,4,5,6,7,8,9,10
@@ -159,15 +161,80 @@ ORDER BY 1
 
 
 
-SELECT 
-	d.created_at 
-	, d.product_1_symbol 
-	, CASE WHEN d.signup_hostcountry = 'TH' THEN 'TH' ELSE 'other' END AS signup_hostcountry 
-	, SUM(usd_net_buy_amount) usd_net_buy_amount
-	, SUM(sum_usd_trade_amount) sum_usd_trade_amount
-FROM reportings_data.dm_user_transactions_dwt_daily d
+SELECT
+	DATE_TRUNC('day', t.created_at) created_at 
+	, t.signup_hostcountry 
+	, t.ap_account_id 
+	, 'zipmex' user_type
+	, t.product_1_symbol
+	, t.side 
+	, CASE WHEN cwts.rank_ <= 10 THEN 'top10' ELSE 
+	       (CASE WHEN zte.vip_tier IS NULL THEN 'no_zmt' ELSE zte.vip_tier END)
+	      END AS vip_tier
+	, CASE WHEN t.counter_party IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping WHERE is_non_organic = TRUE) 
+		THEN FALSE ELSE TRUE END "is_organic_trade" 
+	, CASE WHEN product_1_id IN (16,50) THEN TRUE ELSE FALSE END AS is_zmt_trade
+	, CASE WHEN cwts.is_whale IS NOT NULL THEN TRUE ELSE FALSE END AS is_whale
+--		, CASE WHEN t.ap_account_id IN (SELECT DISTINCT ap_account_id FROM mappings.commercial_is_whale) THEN TRUE ELSE FALSE END AS is_whale
+	, CASE 	WHEN t.ap_account_id IN ('85191','73926','88108','152636','140459','140652','55796','56951','52826','54687')
+				AND t.product_1_symbol IN ('USDC')
+				AND DATE_TRUNC('day', t.created_at) >= '2021-07-01 07:00:00'
+				AND DATE_TRUNC('day', t.created_at) < '2021-07-11 07:00:00'
+				THEN TRUE ELSE FALSE 
+			END AS is_july_gaming
+	, COUNT(DISTINCT t.order_id) "count_orders"
+	, COUNT(DISTINCT t.trade_id) "count_trades"
+--	, COUNT(DISTINCT t.execution_id) "count_executions"
+	, SUM(t.quantity) "sum_coin_volume"
+	, SUM(t.amount_usd) "sum_usd_trade_volume" 
+FROM 
+	analytics.trades_master t
+	LEFT JOIN analytics.users_master u
+		ON t.ap_account_id = u.ap_account_id
+	LEFT JOIN 
+        mappings.commercial_whale_tagging_sample cwts 
+        ON t.ap_account_id = cwts.ap_account_id 
+        AND DATE_TRUNC('month', t.created_at)::DATE = cwts.created_at::DATE
+	LEFT JOIN analytics.zmt_tier_endofmonth zte 
+        ON t.ap_account_id = zte.ap_account_id 
+        AND DATE_TRUNC('month', t.created_at)::DATE = DATE_TRUNC('month', zte.created_at)::DATE
 WHERE 
-	d.created_at >= NOW()::DATE - '3 day'::INTERVAL 
-	AND product_1_symbol = 'BTC'
-GROUP BY 1,2,3
-ORDER BY 3,1
+	CASE WHEN t.created_at < '2022-05-05' THEN (t.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping))
+		ELSE (t.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping WHERE ap_account_id NOT IN (38121)))
+		END
+	AND t.signup_hostcountry IN ('TH','ID','AU','global')
+GROUP BY
+	1,2,3,4,5,6,7,8,9,10
+ORDER BY 1,2,3
+
+-- max trade_id per token
+WITH base AS (
+SELECT 
+	product_1_symbol 
+	, trade_id 
+	, created_at
+	, amount_usd 
+FROM analytics.trades_master tm 
+WHERE amount_usd IS NOT NULL
+ORDER BY amount_usd DESC 
+)	, ticket_rank AS (
+	SELECT 
+		*
+		, RANK() OVER(PARTITION BY product_1_symbol ORDER BY amount_usd DESC) ticket_rank
+	FROM base 
+	ORDER BY product_1_symbol , 5
+)
+SELECT *
+FROM ticket_rank
+WHERE ticket_rank = 1
+;
+
+
+-- max order_id
+SELECT 
+	order_id  
+	, SUM(amount_usd) amount_usd 
+FROM analytics.trades_master tm 
+WHERE amount_usd IS NOT NULL
+GROUP BY 1
+ORDER BY 2 DESC 

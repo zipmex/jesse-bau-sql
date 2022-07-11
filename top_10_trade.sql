@@ -1,22 +1,30 @@
 -- top 10 asset - daily trade volume
 WITH monthly_trade AS (
 	SELECT 
-		DATE_TRUNC('month', created_at) created_at
+		DATE_TRUNC('year', created_at)::DATE created_at
+		, signup_hostcountry
 		, product_1_symbol 
 		, SUM(amount_usd) sum_trade_vol
 	FROM 
 		analytics.trades_master t
 	WHERE 
-		DATE_TRUNC('day', t.created_at) >= DATE_TRUNC('month', NOW()) 
+		DATE_TRUNC('day', t.created_at) >= DATE_TRUNC('year', NOW()) 
 		AND DATE_TRUNC('day', t.created_at) < DATE_TRUNC('day', NOW())
-		AND t.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping)
-		AND t.signup_hostcountry IN ('ID') -- ('TH','ID','AU','global')
-	GROUP BY 1,2
+		AND CASE WHEN t.created_at < '2022-05-05' THEN (t.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping))
+				ELSE (t.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping WHERE ap_account_id NOT IN (38121)))
+				END
+		AND t.signup_hostcountry IN ('TH','ID','AU','global')
+	GROUP BY 1,2,3
 	)	, top_10_month AS (
 	SELECT 
 		*
-		, ROW_NUMBER () OVER(PARTITION BY created_at ORDER BY sum_trade_vol DESC) row_ 
+		, ROW_NUMBER () OVER(PARTITION BY created_at, signup_hostcountry ORDER BY sum_trade_vol DESC) rank_ 
 	FROM monthly_trade
+	)
+	SELECT 
+	*
+	FROM top_10_month
+	
 	)
 SELECT
 	DATE_TRUNC('day', t.created_at)::DATE traded_date 

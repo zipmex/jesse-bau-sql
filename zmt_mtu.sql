@@ -1,13 +1,40 @@
----- ZMT MTU 2022-03-16 -- active balance (Zipup/ Ziplock) -- active Trader -- active depositor/ withdrawer -- zipworld purchaser -- zlaunch staker
-WITH base AS (
+---- ZMT MTU 2022-05-25 -- active balance (Zipup/ Ziplock) -- active Trader -- active depositor/ withdrawer -- zipworld purchaser -- zlaunch staker
+WITH coin_base AS (
 		SELECT 
-			a.created_at 
+			DISTINCT UPPER(SPLIT_PART(product_id,'.',1)) symbol
+			, started_at effective_date
+			, ended_at expired_date
+		FROM zip_up_service_public.interest_rates
+		ORDER BY 1
+)	, zipup_coin AS (
+		SELECT 
+			DISTINCT
+			symbol
+			, (CASE WHEN effective_date < '2022-03-22' THEN '2018-01-01' ELSE effective_date END)::DATE AS effective_date
+			, (CASE WHEN expired_date IS NULL THEN COALESCE( LEAD(effective_date) OVER(PARTITION BY symbol),'2999-12-31') ELSE expired_date END)::DATE AS expired_date
+		FROM coin_base 
+		ORDER BY 3,2
+)	, base AS (
+		SELECT 
+			a.created_at
 			, CASE WHEN u.signup_hostcountry IN ('test', 'error','xbullion') THEN 'test' ELSE u.signup_hostcountry END AS signup_hostcountry 
 			, a.ap_account_id 
-			, CASE WHEN a.ap_account_id IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping) 
-					THEN TRUE ELSE FALSE END AS is_nominee
+			, CASE WHEN a.created_at < '2022-05-05' THEN  
+				( CASE WHEN a.ap_account_id IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping WHERE ap_account_id NOT IN (496001))
+				THEN TRUE ELSE FALSE END)
+				ELSE
+				( CASE WHEN a.ap_account_id IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping WHERE ap_account_id NOT IN (38121 ,496001))
+				THEN TRUE ELSE FALSE END)
+				END AS is_nominee 
 			, a.symbol 
-			, CASE WHEN a.created_at < '2022-04-29' THEN s.tnc_accepted_at ELSE u.zipup_subscribed_at END AS zipup_subscribed_at
+			, CASE WHEN a.symbol = 'ZMT' THEN TRUE WHEN zc.symbol IS NOT NULL THEN TRUE ELSE FALSE END AS zipup_coin 
+			, CASE WHEN u.signup_hostcountry = 'TH' THEN
+				(CASE WHEN a.created_at < '2022-05-24' THEN s.tnc_accepted_at ELSE u.zipup_subscribed_at END)
+				WHEN u.signup_hostcountry = 'ID' THEN
+				(CASE WHEN a.created_at < '2022-07-04' THEN s.tnc_accepted_at ELSE u.zipup_subscribed_at END)
+				WHEN u.signup_hostcountry IN ('AU','global') THEN
+				(CASE WHEN a.created_at < '2022-06-29' THEN s.tnc_accepted_at ELSE u.zipup_subscribed_at END)
+				END AS zipup_subscribed_at
 			, SUM(trade_wallet_amount) trade_wallet_amount
 			, SUM(z_wallet_amount) z_wallet_amount
 			, SUM(ziplock_amount) ziplock_amount
@@ -19,6 +46,11 @@ WITH base AS (
 		FROM 
 			analytics.wallets_balance_eod a 
 			LEFT JOIN 
+				zipup_coin zc 
+				ON a.symbol = zc.symbol
+				AND a.created_at >= zc.effective_date
+				AND a.created_at < zc.expired_date
+			LEFT JOIN 
 				analytics.users_master u 
 				ON a.ap_account_id = u.ap_account_id 
 			LEFT JOIN 
@@ -29,13 +61,13 @@ WITH base AS (
 				warehouse.zip_up_service_public.user_settings s
 				ON u.user_id = s.user_id 
 		WHERE 
-			a.created_at >= '2022-05-01 00:00:00'
+			a.created_at >= '2022-03-01 00:00:00'
 			AND a.created_at < DATE_TRUNC('day', NOW()) 
 			AND a.symbol NOT IN ('TST1','TST2')
 		--	AND ((a.created_at = DATE_TRUNC('month', a.created_at) + '1 month' - '1 day'::INTERVAL) OR (a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL))
 			AND u.signup_hostcountry IN ('TH','ID','AU','global')
 			AND a.symbol IN ('ZMT')
-		GROUP BY 1,2,3,4,5,6
+		GROUP BY 1,2,3,4,5,6,7
 		ORDER BY 1 DESC 
 )	, aum_snapshot AS (
 		SELECT 
@@ -44,7 +76,7 @@ WITH base AS (
 			, a.ap_account_id 
 			, CASE WHEN zipup_subscribed_at IS NOT NULL AND a.created_at >= DATE_TRUNC('day', zipup_subscribed_at) THEN TRUE ELSE FALSE END AS is_zipup
 			, CASE WHEN symbol = 'ZMT' THEN 'ZMT' 
-					WHEN symbol IN ('BTC', 'USDT', 'USDC', 'GOLD', 'LTC', 'ETH') THEN 'zipup_coin'
+					WHEN symbol <> 'ZMT' AND zipup_coin IS TRUE THEN 'zipup_coin'
 					ELSE 'non_zipup' END AS asset_type
 			, SUM( COALESCE (trade_wallet_amount, 0)) trade_wallet_amount
 			, SUM( COALESCE (trade_wallet_amount_usd,0)) trade_wallet_amount_usd
@@ -136,7 +168,7 @@ WITH base AS (
 		WHERE 
 			tm.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping)
 			AND tm.signup_hostcountry IN ('TH','ID','AU','global')
-			AND tm.created_at >= '2022-05-01 00:00:00' 
+			AND tm.created_at >= '2022-03-01 00:00:00' 
 			AND tm.created_at < DATE_TRUNC('day', NOW()) 
 			AND tm.product_1_symbol = 'ZMT'
 --- deposit + withdrawl 
@@ -203,7 +235,7 @@ WITH base AS (
 				AND d.month_ = w.month_ 
 				AND d.product_symbol = w.product_symbol 
 		WHERE 
-			COALESCE(d.month_, w.month_) >= '2022-05-01' 
+			COALESCE(d.month_, w.month_) >= '2022-03-01' 
 			AND COALESCE(d.month_, w.month_) < DATE_TRUNC('day', NOW())
 			AND COALESCE (d.product_symbol, w.product_symbol) = 'ZMT'
 		GROUP BY 
@@ -240,7 +272,7 @@ WITH base AS (
 	WHERE 
 		p.completed_at IS NOT NULL
 		AND um.ap_account_id IS NOT NULL 
-		AND p.completed_at >= '2022-05-01'
+		AND p.completed_at >= '2022-03-01'
 		AND p.completed_at < DATE_TRUNC('day', NOW())
 	GROUP BY 1,2,3
 -- Z Launch active users = average ZMT lock amount > 0
@@ -269,7 +301,7 @@ WITH base AS (
 			ON z.user_id = u.user_id 
 	WHERE 
 		p."period" = 'day'
-		AND p.created_at >= '2022-05-01'
+		AND p.created_at >= '2022-03-01'
 		AND p.created_at < DATE_TRUNC('day', NOW())
 	GROUP BY 1,2,3,4
 -- join zipworld and z Launch active users as Zip Products active users
@@ -327,6 +359,8 @@ FROM
 	final_table
 GROUP BY 1,2
 ;
+
+
 
 
 
