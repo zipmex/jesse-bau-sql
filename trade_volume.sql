@@ -238,3 +238,37 @@ FROM analytics.trades_master tm
 WHERE amount_usd IS NOT NULL
 GROUP BY 1
 ORDER BY 2 DESC 
+;
+
+
+WITH interval_period AS (
+SELECT 
+	*
+FROM generate_series('2018-12-01 00:00:00'::timestamp, '2022-07-12 00:00:00'::timestamp, '15 minute'::INTERVAL) interval_time 
+)	, interval_trade AS (
+	SELECT 
+		interval_time
+		, tm.product_1_symbol 
+		, tm.trade_id 
+		, tm.amount_usd 
+	FROM interval_period ip
+		LEFT JOIN 
+			analytics.trades_master tm 
+			ON DATE_TRUNC('minute', ip.interval_time) = DATE_TRUNC('minute', tm.created_at)
+	WHERE 
+		tm.signup_hostcountry IN ('TH','ID','AU','global')
+)	, max_trade AS (
+	SELECT 
+		*
+		, RANK() OVER(PARTITION BY product_1_symbol, interval_time ORDER BY amount_usd DESC) max_trade_id
+	FROM interval_trade
+)
+SELECT 
+	product_1_symbol
+	, AVG(amount_usd) avg_max_trade_id
+FROM max_trade 
+WHERE 
+	max_trade_id = 1
+GROUP BY 1
+;
+

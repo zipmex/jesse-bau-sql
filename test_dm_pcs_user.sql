@@ -3,7 +3,8 @@ DROP TABLE IF EXISTS warehouse.bo_testing.dm_pcs_user;
 
 CREATE TABLE IF NOT EXISTS warehouse.bo_testing.dm_pcs_user
 (
-	register_date				DATE
+	data_as_of					DATE
+	, register_date				DATE
 	, verified_at				DATE
 	, user_id					VARCHAR(255)
 	, ap_account_id				INTEGER
@@ -15,8 +16,11 @@ CREATE TABLE IF NOT EXISTS warehouse.bo_testing.dm_pcs_user
 	, near_pcs_status			VARCHAR(255)
 	, vip_tier							VARCHAR(255)
 	, zmt_lock_amount					NUMERIC
+	, l30d_deposit_count				INTEGER
 	, l30d_deposit_usd					NUMERIC
+	, l30d_withdraw_count				INTEGER
 	, l30d_withdraw_usd					NUMERIC
+	, l30d_trade_count					INTEGER
 	, l30d_trade_usd					NUMERIC
 	, f1m_trade_usd						NUMERIC
 	, l30d_transfer_to_zwallet_usd		NUMERIC
@@ -70,7 +74,7 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_pcs_user_base AS
 	WITH user_features AS (
 		SELECT 
 			*
-			, ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY updated_at) row_ 
+			, ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY updated_at DESC) row_ 
 		FROM user_app_public.user_features uf 
 	)
 	SELECT 
@@ -116,14 +120,14 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_pcs_user_base AS
 		LEFT JOIN zip_lock_service_public.user_loyalty_tiers ult 
 			ON um.user_id = ult.user_id 
 	WHERE 
-		CASE WHEN um.signup_hostcountry = 'TH' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
-				WHEN um.signup_hostcountry = 'ID' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
-				WHEN um.signup_hostcountry = 'AU' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
-				WHEN um.signup_hostcountry = 'global' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
-				END
-		AND (f.code NOT IN ('TEST','INTERNAL') OR f.code IS NULL)
+--		CASE WHEN um.signup_hostcountry = 'TH' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
+--				WHEN um.signup_hostcountry = 'ID' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > 0-- cnl2.min_net_deposit_usd::NUMERIC 
+--				WHEN um.signup_hostcountry = 'AU' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
+--				WHEN um.signup_hostcountry = 'global' THEN (sum_deposit_amount_usd - sum_withdraw_amount_usd) > cnl2.min_net_deposit_usd::NUMERIC 
+--				END
+		(f.code NOT IN ('TEST','INTERNAL') OR f.code IS NULL)
 		AND um.ap_account_id NOT IN (SELECT DISTINCT ap_account_id FROM mappings.users_mapping)
---		AND um.user_id = '01F5A4R4MZJS3JXEXRRBZD2FM5'
+--		AND um.user_id = '01EC47XYYXCEVGD9RX5FQSHX6V'
 );
 
 
@@ -131,8 +135,11 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_pcs_user_base_transaction AS
 (
 	SELECT 
 		ub.*
+		, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.deposit_count END) l30d_deposit_count
 		, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.sum_usd_deposit_amount END) l30d_deposit_usd
+		, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.withdraw_count END) l30d_withdraw_count
 		, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.sum_usd_withdraw_amount END) l30d_withdraw_usd
+		, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.trade_count END) l30d_trade_count
 		, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN d.sum_usd_trade_amount  END) l30d_trade_usd
 		, SUM(CASE WHEN d.created_at BETWEEN ub.pcs_tagged_at::DATE AND ub.pcs_tagged_at::DATE + '31 day'::INTERVAL THEN d.sum_usd_trade_amount  END) f1m_trade_usd
 		, SUM(CASE WHEN d.created_at >= NOW()::DATE - '30 day'::INTERVAL THEN zd.transfer_to_zwallet_usd END) l30d_transfer_to_zwallet_usd
@@ -143,6 +150,8 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_pcs_user_base_transaction AS
 		LEFT JOIN reportings_data.dm_zw_hourly_transations zd 
 			ON ub.ap_account_id = zd.ap_account_id 
 			AND zd.product_1_symbol IN ('BTC','SOL','USDC','USDT','XRP','ZMT','ADA','ETH')
+	WHERE 
+		ub.near_pcs_status != 'non_pcs'
 	GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12
 );
 
@@ -213,7 +222,8 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_pcs_user_wallet AS
 				warehouse.zip_up_service_public.user_settings s
 				ON u.user_id = s.user_id 
 		WHERE 
-			a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL
+			dpu.near_pcs_status != 'non_pcs'
+			AND a.created_at = DATE_TRUNC('day', NOW()) - '1 day'::INTERVAL
 		-- exclude test products
 			AND a.symbol NOT IN ('TST1','TST2')
 		ORDER BY 1 DESC 
@@ -251,7 +261,8 @@ CREATE TEMP TABLE IF NOT EXISTS tmp_dm_pcs_user_wallet AS
 CREATE TEMP TABLE IF NOT EXISTS tmp_dm_pcs_individual_report AS
 (
 	SELECT 
-		ub.*
+		NOW()::DATE data_as_of
+		, ub.*
 		, zr.zmt_release_this_month
 		, zr.zmt_release_next_month
 		, uw.balanced_at

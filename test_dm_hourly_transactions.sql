@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS warehouse.bo_testing.dm_user_transactions_dwt_hourly
 	, withdraw_count						INTEGER
 	, sum_coin_withdraw_amount			  NUMERIC
 	, sum_usd_withdraw_amount				NUMERIC
+	, sum_coin_fee_withdraw					NUMERIC
 	, sum_usd_fee_withdraw				  NUMERIC
 	, sum_coin_fee_trade					NUMERIC
 	, sum_usd_fee_trade					 NUMERIC
@@ -235,6 +236,7 @@ CREATE TEMP TABLE tmp_dm_deposit_withdraw_user_daily AS
 			, COUNT( DISTINCT w.ticket_id) AS withdraw_number 
 			, SUM(w.amount) AS withdraw_amount 
 			, SUM(w.amount_usd) withdraw_usd
+			, SUM(fm.fee_amount) withdraw_fee_amount
 			, SUM(fm.fee_usd_amount) withdraw_fee_usd
 		FROM  
 			analytics.withdraw_tickets_master w 
@@ -262,6 +264,7 @@ CREATE TEMP TABLE tmp_dm_deposit_withdraw_user_daily AS
 		, SUM( COALESCE(w.withdraw_number, 0)) withdraw_count
 		, SUM( withdraw_amount) sum_coin_withdraw_amount
 		, SUM( COALESCE(w.withdraw_usd, 0)) sum_usd_withdraw_amount
+		, SUM( COALESCE(w.withdraw_fee_amount, 0)) sum_coin_withdraw_fee
 		, SUM( COALESCE(w.withdraw_fee_usd, 0)) sum_usd_withdraw_fee
 	FROM 
 		deposit_ d 
@@ -305,6 +308,7 @@ CREATE TEMP TABLE tmp_user_transactions_dwt AS
 			, COALESCE (withdraw_count, 0) withdraw_count
 			, COALESCE (sum_coin_withdraw_amount, 0) sum_coin_withdraw_amount
 			, COALESCE (sum_usd_withdraw_amount, 0) sum_usd_withdraw_amount
+			, COALESCE (sum_coin_withdraw_fee, 0) sum_coin_fee_withdraw
 			, COALESCE (sum_usd_withdraw_fee, 0) sum_usd_fee_withdraw
 			, COALESCE (sum_coin_fee_trade, 0) sum_coin_fee_trade
 			, COALESCE (sum_usd_fee_trade, 0) sum_usd_fee_trade
@@ -330,7 +334,7 @@ CREATE TEMP TABLE tmp_user_transactions_dwt AS
 INSERT INTO warehouse.bo_testing.dm_user_transactions_dwt_hourly (invitation_code, user_id, created_at , signup_hostcountry , ap_account_id
 , product_1_symbol  , order_count, trade_count, coin_buy_amount	, coin_net_buy_amount	, sum_coin_trade_amount	, usd_buy_amount	, usd_net_buy_amount	 
 , sum_usd_trade_amount , deposit_count , sum_coin_deposit_amount , sum_usd_deposit_amount , withdraw_count , sum_coin_withdraw_amount  
-, sum_usd_withdraw_amount , sum_usd_fee_withdraw , sum_coin_fee_trade , sum_usd_fee_trade)
+, sum_usd_withdraw_amount , sum_coin_fee_withdraw , sum_usd_fee_withdraw , sum_coin_fee_trade , sum_usd_fee_trade)
 (SELECT * FROM tmp_user_transactions_dwt)
 ;
 

@@ -5,6 +5,7 @@ WITH tier_base AS (
 		, ap_account_id 
 		, vip_tier 
 		, COUNT(DISTINCT ap_account_id) user_count
+		, SUM(ziplock_amount) zmt_lock_amount
 	FROM 
 		analytics.zmt_tier_endofmonth zte 
 	WHERE vip_tier IN ('vip3')
@@ -21,6 +22,7 @@ WITH tier_base AS (
 		tb.vip_tier 
 		, tb.created_at 
 		, tb.ap_account_id 
+		, tb.zmt_lock_amount
 		, mb.m0 
 		, CASE WHEN tb.created_at = mb.m0 THEN 'm0'
 				WHEN tb.created_at = mb.m0 + '1 month'::INTERVAL THEN 'm1'
@@ -38,6 +40,7 @@ WITH tier_base AS (
 				WHEN tb.created_at = mb.m0 + '13 month'::INTERVAL THEN 'm13'
 				WHEN tb.created_at = mb.m0 + '14 month'::INTERVAL THEN 'm14'
 				WHEN tb.created_at = mb.m0 + '15 month'::INTERVAL THEN 'm15'
+				WHEN tb.created_at = mb.m0 + '16 month'::INTERVAL THEN 'm16'
 				END AS cohort_month
 	FROM 
 		tier_base tb 
@@ -50,6 +53,7 @@ SELECT
 	, m0 
 	, cohort_month 
 	, COUNT(DISTINCT ap_account_id) user_count
+	, SUM(zmt_lock_amount) zmt_lock_amount
 FROM cohort_month 
 --WHERE m0 = '2021-02-01'
 GROUP BY 1,2,3

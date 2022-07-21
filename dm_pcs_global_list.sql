@@ -265,6 +265,15 @@ ORDER BY 3
 ;
 
 
+/*
+ * SQL Code Owner : Jesse
+ * Description: generate PCS users for all countries, consolidation in 1 Gsheet
+ * Link/URL to the target Google sheet : https://docs.google.com/spreadsheets/d/1dHKjnulBW2H45kOcUMsgcPQkbgp9fYyeFpths2IWEx8/edit#gid=0
+ * Sheet name: PCS Tracking and Reporting
+ * Tab name : DO_NOT_EDIT_RM_Daily_Monitoring  
+ * Timing of run: 11:00 GMT+7 Daily
+ */
+
 WITH seg_base AS (
 	SELECT *
 	FROM mappings.commercial_customer_segmentation_th
@@ -277,62 +286,118 @@ WITH seg_base AS (
 	UNION ALL
 	SELECT *
 	FROM mappings.commercial_customer_segmentation_global
-)
+)--	, base AS (
 SELECT 
-	dpu.balanced_at
+	CASE WHEN dpu.balanced_at IS NULL THEN '1970-01-01' ELSE dpu.balanced_at END AS balanced_at
+	, CASE WHEN cp.pcs_rm IS NULL THEN 'N/A' ELSE cp.pcs_rm END AS pcs_rm
 	, dpu.user_id
 	, dpu.ap_account_id
 	, dpu.signup_hostcountry
-	, sb.customer_segment
+--	, CASE WHEN sb.customer_segment IS NULL THEN 'N/A' ELSE sb.customer_segment END AS customer_segment
 	, dpu.register_date
 	, dpu.verified_at
-	, up.email 
-	, up.first_name 
-	, up.last_name 
-	, up.mobile_number 
-	, up.dob::DATE 
-	, dpu.pcs_tagged_at
+	, CASE WHEN up.email  IS NULL THEN 'N/A' ELSE up.email END AS email 
+	, CASE WHEN up.first_name IS NULL THEN 'N/A' ELSE up.first_name END AS first_name 
+	, CASE WHEN up.last_name  IS NULL THEN 'N/A' ELSE up.last_name END AS last_name 
+	, CASE WHEN up.mobile_number IS NULL THEN 'N/A' ELSE up.mobile_number END AS mobile_number 
+	, CASE WHEN up.dob::DATE IS NULL THEN '1970-01-01'::DATE ELSE up.dob::DATE END AS dob
+	, CASE WHEN dpu.pcs_tagged_at IS NULL THEN '1970-01-01'::DATE ELSE dpu.pcs_tagged_at END AS pcs_tagged_at
 	, CASE WHEN dpu.pcs_status IS NULL THEN dpu.near_pcs_status ELSE dpu.pcs_status END AS pcs_status	
 	, dpu.vip_tier
 	, dpu.is_zipup_subscribed
-	, dpu.l30d_deposit_usd
-	, dpu.l30d_withdraw_usd
-	, dpu.zmt_release_this_month 
-	, dpu.zmt_release_next_month 
-	, dpu.asset_on_platform_usd
-	, dpu.zmt_trade_wallet_amount_usd
-	, dpu.zmt_z_wallet_amount_usd
-	, dpu.zmt_zipup_usd
-	, dpu.zmt_lock_amount
-	, dpu.non_zmt_trade_wallet_amount_usd
-	, dpu.non_zmt_z_wallet_amount_usd
-	, dpu.non_zmt_zipup_usd
-	, dpu.l30d_transfer_to_zwallet_usd zipup_deposit_transfer
-	, dpu.l30d_withdraw_from_zwallet_usd zipup_withdraw_transfer
-	, dpu.l30d_trade_usd
-FROM bo_testing.dm_pcs_user dpu 
+	, COALESCE (dpu.l30d_deposit_count, 0) l30d_deposit_count
+	, COALESCE (dpu.l30d_deposit_usd, 0) l30d_deposit_usd
+	, COALESCE (dpu.l30d_withdraw_count, 0) l30d_withdraw_count
+	, COALESCE (dpu.l30d_withdraw_usd, 0) l30d_withdraw_usd
+	, COALESCE (dpu.zmt_release_this_month , 0) zmt_release_this_month
+	, COALESCE (dpu.zmt_release_next_month , 0) zmt_release_next_month
+	, COALESCE (dpu.asset_on_platform_usd, 0) asset_on_platform_usd
+	, COALESCE (dpu.zmt_trade_wallet_amount_usd, 0) zmt_trade_wallet_amount_usd
+	, COALESCE (dpu.zmt_z_wallet_amount_usd, 0) zmt_z_wallet_amount_usd
+	, COALESCE (dpu.zmt_zipup_usd, 0) zmt_zipup_usd
+	, COALESCE (dpu.zmt_lock_amount, 0) zmt_lock_amount
+	, COALESCE (dpu.non_zmt_trade_wallet_amount_usd, 0) non_zmt_trade_wallet_amount_usd
+	, COALESCE (dpu.non_zmt_z_wallet_amount_usd, 0) non_zmt_z_wallet_amount_usd
+	, COALESCE (dpu.non_zmt_zipup_usd, 0) non_zmt_zipup_usd
+	, COALESCE (dpu.l30d_transfer_to_zwallet_usd, 0) zipup_deposit_transfer
+	, COALESCE (dpu.l30d_withdraw_from_zwallet_usd, 0) zipup_withdraw_transfer
+	, COALESCE (dpu.f1m_trade_usd , 0) f1m_trade_usd
+	, COALESCE (dpu.l30d_trade_count , 0) l30d_trade_count
+	, COALESCE (dpu.l30d_trade_usd , 0) l30d_trade_usd
+FROM reportings_data.dm_pcs_user dpu 
 -- customer segment as of Mar 31st 2022
 	LEFT JOIN seg_base sb 
 		ON dpu.ap_account_id = sb.ap_account_id::INT 
 	LEFT JOIN 
 		analytics_pii.users_pii up 
 		ON dpu.user_id = up.user_id 
-		
+	LEFT JOIN 
+		mappings.commercial_pcs_rm cp 
+		ON up.email = cp.pcs_email 
+WHERE dpu.data_as_of = NOW()::DATE
+--AND dpu.user_id = '01G2RHZ8D1P86SH8E07YHB739H'
+
 -- validate data 
 )
 SELECT 
-	signup_hostcountry 
-	, pcs_status 
+	balanced_at
+	, user_id
+--	, pcs_status 
 	, COUNT(user_id) 
 	, COUNT(DISTINCT user_id)
 FROM base 
 GROUP BY 1,2
+ORDER BY 3 DESC 
 ;
 
 
-SELECT *
-FROM reportings_data.dm_zw_hourly_transations zd 
-WHERE zd.product_1_symbol IN (SELECT DISTINCT symbol FROM mappings.zip_up_rates_master zurm WHERE ended_at IS NULL)
+SELECT 
+	*
+FROM user_app_public.user_features uf 
+	LEFT JOIN user_app_public.features f 
+	ON uf.feature_id = f.id 
+WHERE user_id IN ('01EGF41H4AD8B7KQR1KG5WMVST','01EY9TT17RNGFZW3VQPF5F7VZ4','01EVG91MZ6FEF68W0RFRHKTJW2','01EQ2NGDR7JRN453TB0J7NB2WG','01FZ73JGGT4V0F0JDD5GWS3EJ6')
 
 
-SELECT ap_account_id FROM mappings.commercial_adhoc_th_telesales cact
+SELECT 
+	DATE_TRUNC('month', d.created_at)::DATE transact_date
+	, 'monthly' timeframe
+	, dpu.balanced_at 
+	, dpu.signup_hostcountry 
+	, dpu.pcs_status  
+	, COUNT(DISTINCT dpu.user_id) user_count
+	, SUM(d.sum_usd_deposit_amount/ 1000000.0)  deposit_usd_m 
+	, SUM(d.sum_usd_withdraw_amount/ 1000000.0) withdraw_usd_m 
+	, SUM(d.sum_usd_deposit_amount/ 1000000.0) - SUM(d.sum_usd_withdraw_amount/ 1000000.0) net_deposit_usd_m
+FROM reportings_data.dm_pcs_user dpu 
+	LEFT JOIN 
+		reportings_data.dm_user_transactions_dwt_hourly d
+		ON dpu.ap_account_id = d.ap_account_id 
+		AND d.created_at >= DATE_TRUNC('month', NOW()) - '6 month'::INTERVAL
+WHERE 
+	dpu.pcs_status IS NOT NULL
+	AND dpu.data_as_of = NOW()::DATE
+GROUP BY 1,2,3,4,5
+UNION ALL 
+SELECT 
+	DATE_TRUNC('week', d.created_at)::DATE transact_date
+	, 'weekly' timeframe
+	, dpu.balanced_at 
+	, dpu.signup_hostcountry 
+	, dpu.pcs_status  
+	, COUNT(DISTINCT dpu.user_id) user_count
+	, SUM(d.sum_usd_deposit_amount/ 1000000.0)  deposit_usd_m 
+	, SUM(d.sum_usd_withdraw_amount/ 1000000.0) withdraw_usd_m 
+	, SUM(d.sum_usd_deposit_amount/ 1000000.0) - SUM(d.sum_usd_withdraw_amount/ 1000000.0) net_deposit_usd_m
+FROM reportings_data.dm_pcs_user dpu 
+	LEFT JOIN 
+		reportings_data.dm_user_transactions_dwt_hourly d
+		ON dpu.ap_account_id = d.ap_account_id 
+		AND d.created_at >= DATE_TRUNC('month', NOW()) - '6 month'::INTERVAL
+WHERE 
+	dpu.pcs_status IS NOT NULL 
+	AND dpu.data_as_of = NOW()::DATE
+GROUP BY 1,2,3,4,5
+;
+
+

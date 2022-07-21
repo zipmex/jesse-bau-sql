@@ -23,11 +23,24 @@ SELECT tick_to_timestamp((1632463800000 - 621355968000000000) / 10000000)
 
 
 SELECT 
-	um.*
+	up.email 
+	, up.ap_user_id
+	, up.ap_account_id 
+	, up.user_id 
+	, um.created_at 
+	, um.verification_approved_at 
+	, um.has_deposited 
+	, um.has_traded 
+	, uf.updated_at 
+	, f.code 
 FROM analytics_pii.users_pii up 
 	LEFT JOIN analytics.users_master um 
 	ON up.user_id = um.user_id 
-WHERE um.user_id = '01FXVZG3NYP2AFFPH0EBCF5J0H'
+	LEFT JOIN user_app_public.user_features uf 
+	ON um.user_id = uf.user_id 
+	LEFT JOIN user_app_public.features f 
+	ON uf.feature_id = f.id 
+WHERE up.user_id = '01FGTNYQ4TAYMM0R9GC95V55JW'
 ;
 
 
